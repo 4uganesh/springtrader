@@ -1,62 +1,81 @@
 pipeline {
   agent any
   stages {
-
-    // Note: Add build stage here
+    /// [build]
     stage('Build') {
-        agent {
-          label "lead-toolchain-skaffold"
-        }
-        steps {
-          container('skaffold') {
-            sh "skaffold build --file-output=image.json"
-            stash includes: 'image.json', name: 'build'
-            sh "rm image.json"
-          }
+      agent {
+        label "lead-toolchain-skaffold"
+      }
+      steps {
+        container('skaffold') {
+          sh "skaffold build --file-output=image.json"
+          stash includes: 'image.json', name: 'build'
+          sh "rm image.json"
         }
       }
-
-
-    // Note: Add deploy stage here
-    version: 0.2
-      phases:
-        pre_build:
-          commands:
-            - aws eks update-kubeconfig --name $CLUSTER
-        build:
-          commands:
-            - skaffold deploy -a image.json -n $STAGING_NAMESPACE
-      
-
-    // Note: Add gating stage here
-  stage ('Manual Ready Check') {
-      agent none
-        when {
+    }
+    /// [build]
+    /// [stage]
+    stage("Deploy to Staging") {
+      agent {
+        label "lead-toolchain-skaffold"
+      }
+      when {
           branch 'master'
-        }
-        options {
-          timeout(time: 30, unit: 'MINUTES')
-        }
-        input {
-          message 'Deploy to Production?'
-        }
-        steps {
-          echo "Deploying"
+      }
+      environment {
+        ISTIO_DOMAIN = "${env.stagingDomain}"
+        PRODUCT_NAME = "${env.product}"
+      }
+      steps {
+        container('skaffold') {
+          unstash 'build'
+          sh "skaffold deploy -a image.json -n ${env.stagingNamespace}"
+          stageMessage "Successfully deployed to staging:\nspringtrader-${env.product}.${env.stagingDomain}/spring-nanotrader-web/"
         }
       }
-
-
-    // Note: Add prod stage here
-    version: 0.2
-      phases:
-        pre_build:
-          commands:
-            - aws eks update-kubeconfig --name $CLUSTER
-        build:
-          commands:
-            - skaffold deploy -a image.json -n $PROD_NAMESPACE
-
-
-
+    }
+    /// [stage]
+    /// [gate]
+    stage ('Manual Ready Check') {
+      agent none
+      when {
+        branch 'master'
+      }
+      options {
+        timeout(time: 30, unit: 'MINUTES')
+      }
+      input {
+        message 'Deploy to Production?'
+      }
+      steps {
+        echo "Deploying"
+      }
+    }
+    /// [gate]
+    /// [prod]
+    stage("Deploy to Production") {
+      agent {
+        label "lead-toolchain-skaffold"
+      }
+      when {
+          branch 'master'
+      }
+      environment {
+        ISTIO_DOMAIN = "${env.productionDomain}"
+        PRODUCT_NAME = "${env.product}"
+      }
+      steps {
+        container('skaffold') {
+          unstash 'build'
+          sh "skaffold deploy -a image.json -n ${env.productionNamespace}"
+          stageMessage "Successfully deployed to production:\nspringtrader-${env.product}.${env.productionDomain}/spring-nanotrader-web/"
+        }
+      }
+    }
+    /// [prod]
   }
 }
+white_check_markeyesraised_hands
+
+
